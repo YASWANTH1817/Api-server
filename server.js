@@ -9,29 +9,40 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// === Load Multiple Keys from .env ===
+const keys = process.env.GEMINI_KEYS?.split(",").map(k => k.trim()) || [];
+let currentIndex = 0;
+
+function getNextKey() {
+    if (keys.length === 0) {
+        throw new Error("No API keys found in GEMINI_KEYS env variable");
+    }
+    const key = keys[currentIndex];
+    currentIndex = (currentIndex + 1) % keys.length; // round-robin
+    return key;
+}
 
 // ✅ Root route
 app.get("/", (_, res) => {
-    const keyLoaded = !!process.env.GEMINI_API_KEY;
-    res.send(`✅ Gemini API is running!<br>API Key loaded: ${keyLoaded}`);
+    res.send(`✅ Gemini API is running!<br>Loaded ${keys.length} API keys`);
 });
 
 // ✅ Secure POST endpoint
 app.post("/api/chat", async (req, res) => {
     try {
-        // Check for password header
+        // Password check
         const clientPassword = req.headers["x-api-password"];
         if (clientPassword !== process.env.API_PASSWORD) {
-            return res
-                .status(401)
-                .json({ error: "Unauthorized: Invalid password" });
+            return res.status(401).json({ error: "Unauthorized: Invalid password" });
         }
 
         const { prompt, model } = req.body;
         if (!prompt) return res.status(400).json({ error: "Missing prompt" });
 
-        // Choose model, default to gemini-2.5-flash
+        // === Rotate API key here per request ===
+        const apiKey = getNextKey();
+        const ai = new GoogleGenAI({ apiKey });
+
         const chosenModel = model || "gemini-2.5-flash";
 
         const response = await ai.models.generateContent({
@@ -50,3 +61,4 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () =>
     console.log(`🚀 Server running at http://localhost:${PORT}`)
 );
+
